@@ -85,13 +85,21 @@ export USER="${USER:-$(id -un)}"
 export LOGNAME="${LOGNAME:-$USER}"
 
 # Doppler: fetch secrets when DOPPLER_TOKEN is set in the container env.
+# `set -a` brackets the eval so each assignment is auto-exported; otherwise
+# plain `KEY=value` stays shell-local and child processes (python, wandb,
+# etc.) see nothing.
 # Silently no-op when token is missing or fetch fails.
 if [ -n "${DOPPLER_TOKEN:-}" ] && command -v doppler >/dev/null 2>&1; then
     if _doppler_env="$(doppler secrets download --no-file --format=env --silent 2>/dev/null)"; then
+        set -a
         eval "$_doppler_env"
+        set +a
     fi
     unset _doppler_env DOPPLER_TOKEN
 fi
+
+# ~/.local/bin: native CLI installs (e.g. claude install) land here.
+[[ -d "${HOME}/.local/bin" ]] && export PATH="${HOME}/.local/bin:${PATH}"
 
 # Expose the `claude` CLI bundled with the VS Code Claude Code extension.
 # The extension dir carries a version suffix that changes on updates, and
