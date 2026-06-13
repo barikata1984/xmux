@@ -8,13 +8,14 @@ use std::time::Duration;
 
 use iced::widget::canvas::Canvas;
 use iced::widget::pane_grid;
-use iced::widget::{button, column, container, row, text};
+use iced::widget::{button, column, container, row, text, scrollable};
 use iced::{Background, Color, Element, Length, Size, Subscription, Task, Theme};
 
 use pane::PaneState;
 use terminal_view::TerminalView;
 use workspace::WorkspaceManager;
 use xmux_platform::{PlatformClipboard, create_platform};
+use xmux_notification::NotificationManager;
 
 fn main() -> iced::Result {
     iced::application(App::new, App::update, App::view)
@@ -31,6 +32,8 @@ struct App {
     cell_height: f32,
     clipboard: Box<dyn PlatformClipboard>,
     sidebar_visible: bool,
+    notification_manager: NotificationManager,
+    notification_panel_visible: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -47,6 +50,9 @@ pub enum Message {
     PrevWorkspace,
     ToggleSidebar,
     SelectWorkspace(usize),
+    ToggleNotificationPanel,
+    MarkAllNotificationsRead,
+    ClearNotifications,
 }
 
 impl App {
@@ -60,6 +66,8 @@ impl App {
                 cell_height: 16.8,
                 clipboard: platform.clipboard,
                 sidebar_visible: true,
+                notification_manager: NotificationManager::new(1000),
+                notification_panel_visible: false,
             },
             Task::none(),
         )
@@ -91,6 +99,10 @@ impl App {
                     for (_, pane_state) in workspace.panes.iter_mut() {
                         if pane_state.terminal.process_events() {
                             pane_state.cache.clear();
+                        }
+                        // Drain notifications from this terminal
+                        for notif in pane_state.terminal.drain_notifications() {
+                            self.notification_manager.add(notif, Some(pane_state.id));
                         }
                     }
                 }
@@ -169,7 +181,62 @@ impl App {
                     self.workspace_manager.active_index = index;
                 }
             }
+            Message::ToggleNotificationPanel => {
+                self.notification_panel_visible = !self.notification_panel_visible;
+            }
+            Message::MarkAllNotificationsRead => {
+                self.notification_manager.mark_all_read();
+            }
+            Message::ClearNotifications => {
+                self.notification_manager.clear();
+            }
         }
+    }
+
+    fn notification_panel_view(&self) -> Element<'_, Message> {
+        let mut items = column(vec![]).spacing(4).padding(8);
+
+        // Header with action buttons
+        let header = row(vec![
+            text("Notifications").size(16).into(),
+            button(text("Read All").size(11))
+                .on_press(Message::MarkAllNotificationsRead)
+                .padding(4)
+                .style(button::secondary)
+                .into(),
+            button(text("Clear").size(11))
+                .on_press(Message::ClearNotifications)
+                .padding(4)
+                .style(button::secondary)
+                .into(),
+        ]).spacing(8);
+        items = items.push(header);
+
+        // Notification list (most recent first)
+        for notif in self.notification_manager.list().iter().rev().take(50) {
+            let style = if notif.read { Color::from_rgb(0.5, 0.5, 0.5) } else { Color::WHITE };
+            let title_text = notif.title.as_deref().unwrap_or("");
+            let display = if title_text.is_empty() {
+                notif.body.clone()
+            } else {
+                format!("{}: {}", title_text, notif.body)
+            };
+            items = items.push(text(display).size(12).color(style));
+        }
+
+        let scrollable_items = scrollable(items)
+            .height(Length::Fixed(300.0));
+
+        container(scrollable_items)
+            .width(Length::Fixed(200.0))
+            .height(Length::Fixed(300.0))
+            .style(|_theme: &Theme| {
+                iced::widget::container::Style {
+                    background: Some(Background::Color(Color::from_rgb(0.15, 0.15, 0.18))),
+                    ..Default::default()
+                }
+            })
+            .into()
     }
 
     fn sidebar_view(&self) -> Element<'_, Message> {
@@ -177,7 +244,19 @@ impl App {
 
         for (i, ws) in self.workspace_manager.workspaces.iter().enumerate() {
             let is_active = i == self.workspace_manager.active_index;
-            let label = text(&ws.name).size(14);
+
+            // Count unread notifications for this workspace's panes
+            let unread: usize = ws.panes.iter()
+                .map(|(_, ps)| self.notification_manager.unread_count_for_pane(&ps.id))
+                .sum();
+
+            let label_text = if unread > 0 {
+                format!("{} ({})", ws.name, unread)
+            } else {
+                ws.name.clone()
+            };
+            let label = text(label_text).size(14);
+
             let btn = button(label)
                 .on_press(Message::SelectWorkspace(i))
                 .width(Length::Fill)
@@ -191,9 +270,30 @@ impl App {
             tabs = tabs.push(btn);
         }
 
+        // Add notification panel toggle button at the bottom
+        let notif_count = self.notification_manager.unread_count();
+        let notif_label = if notif_count > 0 {
+            format!("Notifications ({})", notif_count)
+        } else {
+            "Notifications".to_string()
+        };
+        let notif_btn = button(text(notif_label).size(12))
+            .on_press(Message::ToggleNotificationPanel)
+            .width(Length::Fill)
+            .padding(6)
+            .style(button::secondary);
+
         let tabs = tabs.spacing(2).padding(4).width(Length::Fixed(200.0));
 
-        container(tabs)
+        let sidebar_content = column(vec![
+            tabs.into(),
+            container(notif_btn)
+                .padding(4)
+                .width(Length::Fixed(200.0))
+                .into(),
+        ]);
+
+        container(sidebar_content)
             .height(Length::Fill)
             .style(|_theme: &Theme| {
                 iced::widget::container::Style {
@@ -228,11 +328,14 @@ impl App {
         .on_resize(10, |event| Message::PaneResized(event));
 
         if self.sidebar_visible {
-            row(vec![
-                self.sidebar_view(),
-                pane_grid.into(),
-            ])
-            .into()
+            let sidebar = self.sidebar_view();
+            if self.notification_panel_visible {
+                let panel = self.notification_panel_view();
+                let left = column(vec![sidebar, panel]);
+                row(vec![left.into(), pane_grid.into()]).into()
+            } else {
+                row(vec![sidebar, pane_grid.into()]).into()
+            }
         } else {
             pane_grid.into()
         }

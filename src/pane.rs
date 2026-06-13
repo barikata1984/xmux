@@ -15,7 +15,7 @@ pub struct PaneState {
 
 impl PaneState {
     pub fn new() -> Result<Self, xmux_core::XmuxError> {
-        let terminal = Terminal::new(10_000, 80, 24)?;
+        let terminal = Terminal::new_with_notifications(10_000, 80, 24)?;
         Ok(Self {
             id: PaneId::new(),
             terminal,

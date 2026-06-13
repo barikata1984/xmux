@@ -31,4 +31,5 @@ iced = { version = "0.14", features = ["canvas", "tokio"] }
 xmux-core.workspace = true
 xmux-platform.workspace = true
 xmux-terminal.workspace = true
+xmux-notification.workspace = true
 alacritty_terminal.workspace = true
