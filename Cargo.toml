@@ -4,6 +4,7 @@ members = [
     "crates/xmux-platform",
     "crates/xmux-terminal",
     "crates/xmux-notification",
+    "crates/xmux-rpc",
 ]
 resolver = "2"
 
@@ -12,14 +13,18 @@ xmux-core = { path = "crates/xmux-core" }
 xmux-platform = { path = "crates/xmux-platform" }
 xmux-terminal = { path = "crates/xmux-terminal" }
 xmux-notification = { path = "crates/xmux-notification" }
+xmux-rpc = { path = "crates/xmux-rpc" }
 
 uuid = { version = "1", features = ["v4", "serde"] }
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 thiserror = "2"
 dirs = "6"
 alacritty_terminal = "0.26"
 arboard = { version = "3", features = ["wayland-data-control"] }
 libc = "0.2"
+tokio = { version = "1", features = ["net", "io-util", "sync", "macros", "rt-multi-thread"] }
+tokio-util = { version = "0.7", features = ["codec"] }
 
 [package]
 name = "xmux"
@@ -32,4 +37,7 @@ xmux-core.workspace = true
 xmux-platform.workspace = true
 xmux-terminal.workspace = true
 xmux-notification.workspace = true
+xmux-rpc.workspace = true
 alacritty_terminal.workspace = true
+tokio.workspace = true
+serde_json.workspace = true

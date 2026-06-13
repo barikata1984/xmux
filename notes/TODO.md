@@ -16,13 +16,13 @@
 - [x] P1-T5: スクロールバック
 
 ## P2: 通知システム (5 日)
-- [ ] P2-T1: OSC シーケンスパーサー (方式 A: バイトストリームタップ)
-- [ ] P2-T2: 通知マネージャー
-- [ ] P2-T3: 通知 UI (サイドバーバッジ + 通知パネル)
-- [ ] P2-T4: xmux notify CLI コマンド
+- [x] P2-T1: OSC シーケンスパーサー (方式 A: バイトストリームタップ)
+- [x] P2-T2: 通知マネージャー
+- [x] P2-T3: 通知 UI (サイドバーバッジ + 通知パネル)
+- [x] P2-T4: xmux notify CLI コマンド
 
 ## P3: CLI + JSON-RPC (7 日)
-- [ ] P3-T1: JSON-RPC v2 サーバー (NDJSON フレーミング)
+- [x] P3-T1: JSON-RPC v2 サーバー (NDJSON フレーミング)
 - [ ] P3-T2: RPC メソッドハンドラ (subscription::channel + oneshot)
 - [ ] P3-T3: CLI クライアント
 - [ ] P3-T4: 環境変数の自動設定
