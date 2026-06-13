@@ -191,6 +191,20 @@ impl App {
             Message::ClearNotifications => {
                 self.notification_manager.clear();
             }
+            Message::InjectTestNotification => {
+                use xmux_notification::{OscNotification, NotificationId, OscProtocol};
+                let notif = OscNotification {
+                    id: NotificationId::new(),
+                    protocol: OscProtocol::Osc9,
+                    title: Some("Test".to_string()),
+                    body: "Test notification from Ctrl+Shift+I".to_string(),
+                };
+                let pane_id = self.workspace_manager.active()
+                    .focus
+                    .and_then(|p| self.workspace_manager.active().panes.get(p))
+                    .map(|ps| ps.id);
+                self.notification_manager.add(notif, pane_id);
+            }
         }
     }
 

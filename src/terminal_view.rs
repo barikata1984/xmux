@@ -237,6 +237,7 @@ impl<'a> canvas::Program<Message> for TerminalView<'a> {
                 // Ctrl+Shift+T -> new workspace.
                 // Ctrl+Shift+N -> next workspace.
                 // Ctrl+Shift+P -> previous workspace.
+                // Ctrl+Shift+I -> inject test notification.
                 if modifiers.control() && modifiers.shift() {
                     if let Key::Character(ch) = key {
                         match ch.as_str() {
@@ -274,6 +275,9 @@ impl<'a> canvas::Program<Message> for TerminalView<'a> {
                             }
                             "p" => {
                                 return Some(Action::publish(Message::PrevWorkspace));
+                            }
+                            "i" => {
+                                return Some(Action::publish(Message::InjectTestNotification));
                             }
                             _ => {}
                         }
