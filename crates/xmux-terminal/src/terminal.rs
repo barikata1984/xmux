@@ -12,16 +12,35 @@ use alacritty_terminal::tty;
 use crate::event::EventProxy;
 use crate::pty::{create_term, PtyManager, TerminalSize};
 use xmux_core::XmuxError;
+use xmux_notification::OscNotification;
 
 pub struct Terminal {
     term: Arc<FairMutex<Term<EventProxy>>>,
     pty: PtyManager,
     event_rx: mpsc::Receiver<Event>,
     title: RefCell<String>,
+    notif_rx: Option<mpsc::Receiver<OscNotification>>,
 }
 
 impl Terminal {
     pub fn new(scrollback: usize, columns: usize, lines: usize) -> Result<Self, XmuxError> {
+        Self::new_inner(scrollback, columns, lines, false)
+    }
+
+    pub fn new_with_notifications(
+        scrollback: usize,
+        columns: usize,
+        lines: usize,
+    ) -> Result<Self, XmuxError> {
+        Self::new_inner(scrollback, columns, lines, true)
+    }
+
+    fn new_inner(
+        scrollback: usize,
+        columns: usize,
+        lines: usize,
+        enable_notifications: bool,
+    ) -> Result<Self, XmuxError> {
         let (event_tx, event_rx) = mpsc::channel();
         let event_proxy = EventProxy::new(event_tx);
 
@@ -35,14 +54,23 @@ impl Terminal {
             cell_height: 16,
         };
 
+        let (notif_tx, notif_rx) = if enable_notifications {
+            let (tx, rx) = mpsc::channel();
+            (Some(tx), Some(rx))
+        } else {
+            (None, None)
+        };
+
         let options = tty::Options::default();
-        let pty = PtyManager::new(term.clone(), event_proxy, &options, window_size, 1)?;
+        let pty =
+            PtyManager::new(term.clone(), event_proxy, &options, window_size, 1, notif_tx)?;
 
         Ok(Self {
             term,
             pty,
             event_rx,
             title: RefCell::new(String::new()),
+            notif_rx,
         })
     }
 
@@ -97,6 +125,16 @@ impl Terminal {
 
     pub fn title(&self) -> String {
         self.title.borrow().clone()
+    }
+
+    pub fn drain_notifications(&self) -> Vec<OscNotification> {
+        let mut notifs = Vec::new();
+        if let Some(ref rx) = self.notif_rx {
+            while let Ok(notif) = rx.try_recv() {
+                notifs.push(notif);
+            }
+        }
+        notifs
     }
 
     pub fn shutdown(&self) {

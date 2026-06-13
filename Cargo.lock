@@ -4473,6 +4473,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "xmux-notification"
+version = "0.1.0"
+dependencies = [
+ "uuid",
+ "xmux-core",
+]
+
+[[package]]
 name = "xmux-platform"
 version = "0.1.0"
 dependencies = [
@@ -4486,7 +4494,9 @@ name = "xmux-terminal"
 version = "0.1.0"
 dependencies = [
  "alacritty_terminal",
+ "libc",
  "xmux-core",
+ "xmux-notification",
 ]
 
 [[package]]

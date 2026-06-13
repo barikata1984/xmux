@@ -5,4 +5,6 @@ edition = "2021"
 
 [dependencies]
 xmux-core.workspace = true
+xmux-notification.workspace = true
 alacritty_terminal.workspace = true
+libc.workspace = true
