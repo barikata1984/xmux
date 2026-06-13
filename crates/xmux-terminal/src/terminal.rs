@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::sync::mpsc;
 use std::sync::Arc;
 
@@ -24,7 +25,16 @@ pub struct Terminal {
 
 impl Terminal {
     pub fn new(scrollback: usize, columns: usize, lines: usize) -> Result<Self, XmuxError> {
-        Self::new_inner(scrollback, columns, lines, false)
+        Self::new_inner(scrollback, columns, lines, false, HashMap::new())
+    }
+
+    pub fn new_with_env(
+        scrollback: usize,
+        columns: usize,
+        lines: usize,
+        env: HashMap<String, String>,
+    ) -> Result<Self, XmuxError> {
+        Self::new_inner(scrollback, columns, lines, false, env)
     }
 
     pub fn new_with_notifications(
@@ -32,7 +42,16 @@ impl Terminal {
         columns: usize,
         lines: usize,
     ) -> Result<Self, XmuxError> {
-        Self::new_inner(scrollback, columns, lines, true)
+        Self::new_inner(scrollback, columns, lines, true, HashMap::new())
+    }
+
+    pub fn new_with_notifications_and_env(
+        scrollback: usize,
+        columns: usize,
+        lines: usize,
+        env: HashMap<String, String>,
+    ) -> Result<Self, XmuxError> {
+        Self::new_inner(scrollback, columns, lines, true, env)
     }
 
     fn new_inner(
@@ -40,6 +59,7 @@ impl Terminal {
         columns: usize,
         lines: usize,
         enable_notifications: bool,
+        env: HashMap<String, String>,
     ) -> Result<Self, XmuxError> {
         let (event_tx, event_rx) = mpsc::channel();
         let event_proxy = EventProxy::new(event_tx);
@@ -61,7 +81,8 @@ impl Terminal {
             (None, None)
         };
 
-        let options = tty::Options::default();
+        let mut options = tty::Options::default();
+        options.env = env;
         let pty =
             PtyManager::new(term.clone(), event_proxy, &options, window_size, 1, notif_tx)?;
 

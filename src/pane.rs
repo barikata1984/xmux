@@ -1,4 +1,5 @@
 use std::cell::Cell;
+use std::collections::HashMap;
 use xmux_core::PaneId;
 use xmux_terminal::Terminal;
 use iced::widget::canvas::Cache;
@@ -15,9 +16,19 @@ pub struct PaneState {
 
 impl PaneState {
     pub fn new() -> Result<Self, xmux_core::XmuxError> {
-        let terminal = Terminal::new_with_notifications(10_000, 80, 24)?;
+        let id = PaneId::new();
+        let uid = unsafe { libc::getuid() };
+
+        let mut env = HashMap::new();
+        env.insert("XMUX".into(), "1".into());
+        env.insert("XMUX_PANE_ID".into(), id.to_string());
+        env.insert("XMUX_SOCKET_PATH".into(), format!("/tmp/xmux-{uid}.sock"));
+        env.insert("TERM".into(), "xterm-256color".into());
+        env.insert("COLORTERM".into(), "truecolor".into());
+
+        let terminal = Terminal::new_with_notifications_and_env(10_000, 80, 24, env)?;
         Ok(Self {
-            id: PaneId::new(),
+            id,
             terminal,
             cache: Cache::default(),
             title: String::new(),
