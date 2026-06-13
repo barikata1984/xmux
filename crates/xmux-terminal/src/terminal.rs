@@ -144,6 +144,10 @@ impl Terminal {
         wakeup
     }
 
+    pub fn reset_damage(&self) {
+        self.with_term_mut(|t| t.reset_damage());
+    }
+
     pub fn title(&self) -> String {
         self.title.borrow().clone()
     }

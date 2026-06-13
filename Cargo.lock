@@ -4690,6 +4690,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "xmux-session"
+version = "0.1.0"
+dependencies = [
+ "dirs",
+ "serde",
+ "serde_json",
+ "xmux-core",
+]
+
+[[package]]
 name = "xmux-terminal"
 version = "0.1.0"
 dependencies = [

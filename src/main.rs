@@ -137,6 +137,7 @@ impl App {
                     for (_, pane_state) in workspace.panes.iter_mut() {
                         if pane_state.terminal.process_events() {
                             pane_state.cache.clear();
+                            pane_state.terminal.reset_damage();
                         }
                         // Drain notifications from this terminal
                         for notif in pane_state.terminal.drain_notifications() {
