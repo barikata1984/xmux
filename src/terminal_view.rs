@@ -1,5 +1,6 @@
 use std::time::Instant;
 
+use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::index::{Column, Line, Point as TermPoint, Side};
 use alacritty_terminal::selection::{Selection, SelectionType};
 use alacritty_terminal::term::TermMode;
@@ -71,6 +72,7 @@ pub struct TerminalWidgetState {
     last_click_time: Option<Instant>,
     last_click_pos: Option<Point>,
     click_count: u32,
+    scroll_pixels: f32,
 }
 
 impl Default for TerminalWidgetState {
@@ -80,6 +82,7 @@ impl Default for TerminalWidgetState {
             last_click_time: None,
             last_click_pos: None,
             click_count: 0,
+            scroll_pixels: 0.0,
         }
     }
 }
@@ -189,6 +192,31 @@ impl<'a> canvas::Program<Message> for TerminalView<'a> {
                 modifiers,
                 ..
             }) => {
+                // Shift+PageUp, Shift+PageDown, Shift+Home, Shift+End -> scroll display
+                if modifiers.shift() && !modifiers.control() && !modifiers.alt() {
+                    if let Key::Named(named) = key {
+                        match named {
+                            keyboard::key::Named::PageUp => {
+                                self.terminal.scroll_display(alacritty_terminal::grid::Scroll::PageUp);
+                                return Some(Action::capture());
+                            }
+                            keyboard::key::Named::PageDown => {
+                                self.terminal.scroll_display(alacritty_terminal::grid::Scroll::PageDown);
+                                return Some(Action::capture());
+                            }
+                            keyboard::key::Named::Home => {
+                                self.terminal.scroll_display(alacritty_terminal::grid::Scroll::Top);
+                                return Some(Action::capture());
+                            }
+                            keyboard::key::Named::End => {
+                                self.terminal.scroll_display(alacritty_terminal::grid::Scroll::Bottom);
+                                return Some(Action::capture());
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+
                 // Ctrl+B -> toggle sidebar.
                 if modifiers.control() && !modifiers.shift() {
                     if let Key::Character(ch) = key {
@@ -258,6 +286,14 @@ impl<'a> canvas::Program<Message> for TerminalView<'a> {
                 let text_str = text.as_ref().map(|s| s.as_str());
                 if let Some(bytes) = input::key_to_bytes(key, text_str, modifiers, is_app_cursor) {
                     self.terminal.write(bytes);
+
+                    // Auto-scroll to bottom when user types (if scrolled up).
+                    let display_offset =
+                        self.terminal.with_term(|t| t.grid().display_offset());
+                    if display_offset > 0 {
+                        self.terminal.scroll_display(alacritty_terminal::grid::Scroll::Bottom);
+                    }
+
                     return Some(Action::capture());
                 }
                 None
@@ -334,6 +370,45 @@ impl<'a> canvas::Program<Message> for TerminalView<'a> {
                     return Some(Action::capture());
                 }
                 None
+            }
+
+            // --- Mouse wheel scrolled ---
+            Event::Mouse(mouse::Event::WheelScrolled { delta }) => {
+                // Check if in alternate screen with ALTERNATE_SCROLL mode
+                let alt_scroll = self.terminal.with_term(|t| {
+                    t.mode().contains(TermMode::ALT_SCREEN) && t.mode().contains(TermMode::ALTERNATE_SCROLL)
+                });
+
+                match delta {
+                    mouse::ScrollDelta::Lines { y, .. } => {
+                        if alt_scroll {
+                            // Send arrow keys instead of scrolling display
+                            let count = y.abs() as usize;
+                            let arrow = if *y < 0.0 { b"\x1b[B" } else { b"\x1b[A" };
+                            for _ in 0..count.max(1) {
+                                self.terminal.write(arrow.to_vec());
+                            }
+                        } else {
+                            let lines = (-y * 3.0) as i32;
+                            if lines != 0 {
+                                self.terminal.scroll_display(alacritty_terminal::grid::Scroll::Delta(lines));
+                            }
+                        }
+                        return Some(Action::capture());
+                    }
+                    mouse::ScrollDelta::Pixels { y, .. } => {
+                        if !alt_scroll {
+                            // Accumulate pixel scroll in state
+                            state.scroll_pixels += y;
+                            let lines = (state.scroll_pixels / self.cell_height) as i32;
+                            if lines != 0 {
+                                state.scroll_pixels -= lines as f32 * self.cell_height;
+                                self.terminal.scroll_display(alacritty_terminal::grid::Scroll::Delta(-lines));
+                            }
+                        }
+                        return Some(Action::capture());
+                    }
+                }
             }
 
             _ => None,
@@ -484,6 +559,37 @@ impl<'a> canvas::Program<Message> for TerminalView<'a> {
                         CursorShape::Hidden => {}
                     }
                 }
+
+                // Draw scrollbar if history exists
+                let grid = term.grid();
+                let history = grid.history_size();
+                if history > 0 {
+                    let total = history + grid.screen_lines();
+                    let display_offset = grid.display_offset();
+                    let screen_lines = grid.screen_lines();
+
+                    let bar_width = 8.0_f32;
+                    let bar_x = bounds.size().width - bar_width;
+
+                    // Track background
+                    frame.fill_rectangle(
+                        Point::new(bar_x, 0.0),
+                        Size::new(bar_width, bounds.size().height),
+                        Color { r: 0.3, g: 0.3, b: 0.3, a: 0.2 },
+                    );
+
+                    // Thumb
+                    let thumb_top = (total - display_offset - screen_lines) as f32 / total as f32;
+                    let thumb_bottom = (total - display_offset) as f32 / total as f32;
+                    let thumb_y = thumb_top * bounds.size().height;
+                    let thumb_h = (thumb_bottom - thumb_top) * bounds.size().height;
+
+                    frame.fill_rectangle(
+                        Point::new(bar_x, thumb_y),
+                        Size::new(bar_width, thumb_h.max(10.0)),
+                        Color { r: 0.6, g: 0.6, b: 0.6, a: 0.5 },
+                    );
+                }
             });
         });
         vec![geometry]
@@ -539,5 +645,36 @@ mod tests {
         let (cols2, rows2) = compute_grid_size(800.0, 600.0, 16.0, 32.0);
         assert!(cols1 > cols2);
         assert!(rows1 > rows2);
+    }
+
+    #[test]
+    fn test_scroll_delta_lines_to_i32() {
+        let y = -1.0_f32;
+        let lines = (-y * 3.0) as i32;
+        assert_eq!(lines, 3);
+    }
+
+    #[test]
+    fn test_scrollbar_position_at_bottom() {
+        let history = 100usize;
+        let screen_lines = 40usize;
+        let display_offset = 0usize;
+        let total = history + screen_lines;
+        let start = (total - display_offset - screen_lines) as f32 / total as f32;
+        let end = (total - display_offset) as f32 / total as f32;
+        assert!((start - 0.714).abs() < 0.001);
+        assert_eq!(end, 1.0);
+    }
+
+    #[test]
+    fn test_scrollbar_position_at_top() {
+        let history = 100usize;
+        let screen_lines = 40usize;
+        let display_offset = 100usize;
+        let total = history + screen_lines;
+        let start = (total - display_offset - screen_lines) as f32 / total as f32;
+        let end = (total - display_offset) as f32 / total as f32;
+        assert_eq!(start, 0.0);
+        assert!((end - 0.286).abs() < 0.001);
     }
 }
