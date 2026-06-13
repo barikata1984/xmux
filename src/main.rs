@@ -1,3 +1,4 @@
+mod cli;
 mod input;
 mod pane;
 mod terminal_view;
@@ -19,6 +20,22 @@ use xmux_platform::{PlatformClipboard, create_platform};
 use xmux_notification::NotificationManager;
 
 fn main() -> iced::Result {
+    use clap::Parser;
+
+    let cli_args = cli::Cli::parse();
+
+    if cli_args.command.is_some() {
+        // CLI mode
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+        if let Err(e) = rt.block_on(cli::run_cli(cli_args)) {
+            eprintln!("Error: {e}");
+            std::process::exit(1);
+        }
+        // Exit cleanly after CLI command completes
+        std::process::exit(0);
+    }
+
+    // GUI mode
     iced::application(App::new, App::update, App::view)
         .title(App::title)
         .subscription(App::subscription)
