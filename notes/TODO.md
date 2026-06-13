@@ -23,9 +23,9 @@
 
 ## P3: CLI + JSON-RPC (7 日)
 - [x] P3-T1: JSON-RPC v2 サーバー (NDJSON フレーミング)
-- [ ] P3-T2: RPC メソッドハンドラ (subscription::channel + oneshot)
-- [ ] P3-T3: CLI クライアント
-- [ ] P3-T4: 環境変数の自動設定
+- [x] P3-T2: RPC メソッドハンドラ (subscription::channel + oneshot)
+- [x] P3-T3: CLI クライアント
+- [x] P3-T4: 環境変数の自動設定
 - [x] P3-T5: セキュリティ (ソケット認証)
 
 ## P4: エージェントフック + git 連携 (4 日)
