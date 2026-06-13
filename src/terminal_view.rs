@@ -1,9 +1,12 @@
+use alacritty_terminal::term::TermMode;
 use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::vte::ansi::{Color as TermColor, CursorShape, NamedColor};
-use iced::widget::canvas::{self, Cache, Geometry};
-use iced::{Color, Font, Pixels, Point, Rectangle, Renderer, Size, Theme, mouse};
+use iced::keyboard;
+use iced::widget::canvas::{self, Action, Cache, Geometry};
+use iced::{Color, Event, Font, Pixels, Point, Rectangle, Renderer, Size, Theme, mouse};
 
 use crate::Message;
+use crate::input;
 
 /// Default ANSI color palette (xterm-256 standard colors 0-15).
 const ANSI_COLORS: [[u8; 3]; 16] = [
@@ -86,6 +89,34 @@ fn convert_color(
 
 impl<'a> canvas::Program<Message> for TerminalView<'a> {
     type State = ();
+
+    fn update(
+        &self,
+        _state: &mut Self::State,
+        event: &Event,
+        _bounds: Rectangle,
+        _cursor: mouse::Cursor,
+    ) -> Option<Action<Message>> {
+        match event {
+            Event::Keyboard(keyboard::Event::KeyPressed {
+                key,
+                text,
+                modifiers,
+                ..
+            }) => {
+                let is_app_cursor = self
+                    .terminal
+                    .with_term(|t| t.mode().contains(TermMode::APP_CURSOR));
+                let text_str = text.as_ref().map(|s| s.as_str());
+                if let Some(bytes) = input::key_to_bytes(key, text_str, modifiers, is_app_cursor) {
+                    self.terminal.write(bytes);
+                    return Some(Action::capture());
+                }
+                None
+            }
+            _ => None,
+        }
+    }
 
     fn draw(
         &self,

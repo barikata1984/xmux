@@ -1,3 +1,4 @@
+mod input;
 mod terminal_view;
 
 use std::time::Duration;

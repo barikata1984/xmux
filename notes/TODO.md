@@ -5,7 +5,7 @@
 - [x] P0-T2: PTY 生成と I/O ループ (alacritty_terminal::tty + EventLoop)
 - [x] P0-T3: alacritty_terminal 統合
 - [x] P0-T4: Iced Canvas ターミナル描画 (~450 行)
-- [ ] P0-T5: キーボード入力処理
+- [x] P0-T5: キーボード入力処理
 - [ ] P0-T6: テキスト選択とクリップボード
 
 ## P1: 分割ペイン + 縦タブサイドバー (6 日)
