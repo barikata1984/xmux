@@ -4645,6 +4645,7 @@ dependencies = [
 name = "xmux-agent"
 version = "0.1.0"
 dependencies = [
+ "dirs",
  "serde",
  "serde_json",
  "xmux-core",
