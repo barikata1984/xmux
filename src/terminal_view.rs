@@ -48,6 +48,7 @@ pub struct TerminalView<'a> {
     pub cache: &'a Cache,
     pub cell_width: f32,
     pub cell_height: f32,
+    pub pane: iced::widget::pane_grid::Pane,
 }
 
 /// Widget state tracked by the canvas between frames.
@@ -176,18 +177,40 @@ impl<'a> canvas::Program<Message> for TerminalView<'a> {
                 ..
             }) => {
                 // Ctrl+Shift+C -> copy selection to clipboard.
+                // Ctrl+Shift+V -> paste from clipboard.
+                // Ctrl+Shift+D -> split pane vertically (left/right).
+                // Ctrl+Shift+E -> split pane horizontally (top/bottom).
+                // Ctrl+Shift+W -> close pane.
                 if modifiers.control() && modifiers.shift() {
                     if let Key::Character(ch) = key {
-                        if ch.as_str().eq_ignore_ascii_case("c") {
-                            let selected =
-                                self.terminal.with_term(|t| t.selection_to_string());
-                            if let Some(text) = selected {
-                                return Some(Action::publish(Message::Copy(text)));
+                        match ch.as_str() {
+                            "c" => {
+                                let selected =
+                                    self.terminal.with_term(|t| t.selection_to_string());
+                                if let Some(text) = selected {
+                                    return Some(Action::publish(Message::Copy(text)));
+                                }
+                                return Some(Action::capture());
                             }
-                            return Some(Action::capture());
-                        }
-                        if ch.as_str().eq_ignore_ascii_case("v") {
-                            return Some(Action::publish(Message::Paste));
+                            "v" => {
+                                return Some(Action::publish(Message::Paste));
+                            }
+                            "d" => {
+                                return Some(Action::publish(Message::Split(
+                                    iced::widget::pane_grid::Axis::Vertical,
+                                    self.pane,
+                                )));
+                            }
+                            "e" => {
+                                return Some(Action::publish(Message::Split(
+                                    iced::widget::pane_grid::Axis::Horizontal,
+                                    self.pane,
+                                )));
+                            }
+                            "w" => {
+                                return Some(Action::publish(Message::ClosePane(self.pane)));
+                            }
+                            _ => {}
                         }
                     }
                 }
