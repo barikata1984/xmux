@@ -8,7 +8,8 @@ use std::time::Duration;
 
 use iced::widget::canvas::Canvas;
 use iced::widget::pane_grid;
-use iced::{Element, Length, Size, Subscription, Task};
+use iced::widget::{button, column, container, row, text};
+use iced::{Background, Color, Element, Length, Size, Subscription, Task, Theme};
 
 use pane::PaneState;
 use terminal_view::TerminalView;
@@ -29,6 +30,7 @@ struct App {
     cell_width: f32,
     cell_height: f32,
     clipboard: Box<dyn PlatformClipboard>,
+    sidebar_visible: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -43,6 +45,8 @@ pub enum Message {
     NewWorkspace,
     NextWorkspace,
     PrevWorkspace,
+    ToggleSidebar,
+    SelectWorkspace(usize),
 }
 
 impl App {
@@ -55,6 +59,7 @@ impl App {
                 cell_width: 8.4,
                 cell_height: 16.8,
                 clipboard: platform.clipboard,
+                sidebar_visible: true,
             },
             Task::none(),
         )
@@ -156,7 +161,47 @@ impl App {
             Message::PrevWorkspace => {
                 self.workspace_manager.prev_workspace();
             }
+            Message::ToggleSidebar => {
+                self.sidebar_visible = !self.sidebar_visible;
+            }
+            Message::SelectWorkspace(index) => {
+                if index < self.workspace_manager.workspaces.len() {
+                    self.workspace_manager.active_index = index;
+                }
+            }
         }
+    }
+
+    fn sidebar_view(&self) -> Element<'_, Message> {
+        let mut tabs = column(vec![]);
+
+        for (i, ws) in self.workspace_manager.workspaces.iter().enumerate() {
+            let is_active = i == self.workspace_manager.active_index;
+            let label = text(&ws.name).size(14);
+            let btn = button(label)
+                .on_press(Message::SelectWorkspace(i))
+                .width(Length::Fill)
+                .padding(8);
+
+            let btn = if is_active {
+                btn.style(button::primary)
+            } else {
+                btn.style(button::secondary)
+            };
+            tabs = tabs.push(btn);
+        }
+
+        let tabs = tabs.spacing(2).padding(4).width(Length::Fixed(200.0));
+
+        container(tabs)
+            .height(Length::Fill)
+            .style(|_theme: &Theme| {
+                iced::widget::container::Style {
+                    background: Some(Background::Color(Color::from_rgb(0.12, 0.12, 0.15))),
+                    ..Default::default()
+                }
+            })
+            .into()
     }
 
     fn view(&self) -> Element<'_, Message> {
@@ -181,7 +226,15 @@ impl App {
         .on_click(|pane| Message::FocusPane(pane))
         .on_resize(10, |event| Message::PaneResized(event));
 
-        pane_grid.into()
+        if self.sidebar_visible {
+            row(vec![
+                self.sidebar_view(),
+                pane_grid.into(),
+            ])
+            .into()
+        } else {
+            pane_grid.into()
+        }
     }
 
     fn subscription(&self) -> Subscription<Message> {

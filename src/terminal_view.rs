@@ -176,6 +176,18 @@ impl<'a> canvas::Program<Message> for TerminalView<'a> {
                 modifiers,
                 ..
             }) => {
+                // Ctrl+B -> toggle sidebar.
+                if modifiers.control() && !modifiers.shift() {
+                    if let Key::Character(ch) = key {
+                        match ch.as_str() {
+                            "b" => {
+                                return Some(Action::publish(Message::ToggleSidebar));
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+
                 // Ctrl+Shift+C -> copy selection to clipboard.
                 // Ctrl+Shift+V -> paste from clipboard.
                 // Ctrl+Shift+D -> split pane vertically (left/right).
