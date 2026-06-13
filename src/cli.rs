@@ -43,6 +43,10 @@ pub enum Commands {
     },
     ListNotifications,
     ClearNotifications,
+    TmuxCompat {
+        #[arg(trailing_var_arg = true)]
+        args: Vec<String>,
+    },
 }
 
 fn socket_path() -> PathBuf {
@@ -136,6 +140,16 @@ pub async fn run_cli(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
         Commands::ClearNotifications => {
             let result = send_rpc(&socket, "notification.clear", serde_json::json!({})).await?;
             println!("{}", result);
+        }
+        Commands::TmuxCompat { args } => {
+            let str_args: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+            if let Some((method, params)) = crate::tmux_shim::parse_tmux_command(str_args.as_slice()) {
+                let result = send_rpc(&socket, method, params).await?;
+                println!("{}", serde_json::to_string_pretty(&result)?);
+            } else {
+                eprintln!("Unknown tmux command");
+                std::process::exit(1);
+            }
         }
     }
     Ok(())

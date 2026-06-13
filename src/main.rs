@@ -3,6 +3,7 @@ mod git_info;
 mod input;
 mod pane;
 mod terminal_view;
+mod tmux_shim;
 mod workspace;
 
 use std::borrow::Cow;

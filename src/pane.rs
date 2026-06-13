@@ -18,11 +18,13 @@ impl PaneState {
     pub fn new() -> Result<Self, xmux_core::XmuxError> {
         let id = PaneId::new();
         let uid = unsafe { libc::getuid() };
+        let socket_path = format!("/tmp/xmux-{uid}.sock");
 
         let mut env = HashMap::new();
         env.insert("XMUX".into(), "1".into());
         env.insert("XMUX_PANE_ID".into(), id.to_string());
-        env.insert("XMUX_SOCKET_PATH".into(), format!("/tmp/xmux-{uid}.sock"));
+        env.insert("XMUX_SOCKET_PATH".into(), socket_path.clone());
+        env.insert("TMUX".into(), format!("{socket_path},0,0"));
         env.insert("TERM".into(), "xterm-256color".into());
         env.insert("COLORTERM".into(), "truecolor".into());
 
