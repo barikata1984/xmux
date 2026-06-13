@@ -216,6 +216,7 @@ impl App {
                 cell_width,
                 cell_height,
                 pane,
+                pane_state: state,
             };
             let canvas = Canvas::new(view)
                 .width(Length::Fill)

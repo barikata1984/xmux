@@ -12,6 +12,18 @@ use iced::{Color, Event, Font, Pixels, Point, Rectangle, Renderer, Size, Theme, 
 use crate::Message;
 use crate::input;
 
+/// Minimum terminal grid dimensions.
+const MIN_COLUMNS: u16 = 2;
+const MIN_ROWS: u16 = 1;
+
+/// Compute terminal grid size from pixel bounds and cell dimensions.
+/// Returns (columns, rows) with minimum bounds enforced.
+fn compute_grid_size(bounds_width: f32, bounds_height: f32, cell_width: f32, cell_height: f32) -> (u16, u16) {
+    let cols = (bounds_width / cell_width).floor() as u16;
+    let rows = (bounds_height / cell_height).floor() as u16;
+    (cols.max(MIN_COLUMNS), rows.max(MIN_ROWS))
+}
+
 /// Default ANSI color palette (xterm-256 standard colors 0-15).
 const ANSI_COLORS: [[u8; 3]; 16] = [
     [0, 0, 0],       // Black
@@ -49,6 +61,7 @@ pub struct TerminalView<'a> {
     pub cell_width: f32,
     pub cell_height: f32,
     pub pane: iced::widget::pane_grid::Pane,
+    pub pane_state: &'a crate::pane::PaneState,
 }
 
 /// Widget state tracked by the canvas between frames.
@@ -335,6 +348,10 @@ impl<'a> canvas::Program<Message> for TerminalView<'a> {
         bounds: Rectangle,
         _cursor: mouse::Cursor,
     ) -> Vec<Geometry> {
+        // Check if the pane size has changed and update terminal grid size if needed.
+        let (cols, rows) = compute_grid_size(bounds.width, bounds.height, self.cell_width, self.cell_height);
+        self.pane_state.update_size(cols, rows);
+
         let geometry = self.cache.draw(renderer, bounds.size(), |frame| {
             let cw = self.cell_width;
             let ch = self.cell_height;
@@ -474,3 +491,53 @@ impl<'a> canvas::Program<Message> for TerminalView<'a> {
 }
 
 use iced::keyboard::Key;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_grid_size_from_bounds() {
+        // 800x600 pixels with 8.4x16.8 cell dimensions
+        // Should give us 95 columns and 35 rows
+        let (cols, rows) = compute_grid_size(800.0, 600.0, 8.4, 16.8);
+        assert_eq!(cols, 95);  // floor(800/8.4) = 95
+        assert_eq!(rows, 35);  // floor(600/16.8) = 35
+    }
+
+    #[test]
+    fn test_grid_size_minimum() {
+        // Very small bounds should still enforce minimum dimensions
+        let (cols, rows) = compute_grid_size(1.0, 1.0, 8.4, 16.8);
+        assert_eq!(cols, MIN_COLUMNS);
+        assert_eq!(rows, MIN_ROWS);
+    }
+
+    #[test]
+    fn test_grid_size_typical() {
+        // Typical 1024x768 window with standard cell dimensions
+        let (cols, rows) = compute_grid_size(1024.0, 768.0, 8.4, 16.8);
+        assert!(cols >= MIN_COLUMNS);
+        assert!(rows >= MIN_ROWS);
+        // Rough check: should be approximately 122 cols and 45 rows
+        assert!(cols >= 120 && cols <= 125);
+        assert!(rows >= 43 && rows <= 47);
+    }
+
+    #[test]
+    fn test_grid_size_zero_bounds() {
+        // Zero bounds should not panic and should return minimum
+        let (cols, rows) = compute_grid_size(0.0, 0.0, 8.4, 16.8);
+        assert_eq!(cols, MIN_COLUMNS);
+        assert_eq!(rows, MIN_ROWS);
+    }
+
+    #[test]
+    fn test_grid_size_respects_cell_dimensions() {
+        // Larger cells should result in fewer columns/rows
+        let (cols1, rows1) = compute_grid_size(800.0, 600.0, 8.4, 16.8);
+        let (cols2, rows2) = compute_grid_size(800.0, 600.0, 16.0, 32.0);
+        assert!(cols1 > cols2);
+        assert!(rows1 > rows2);
+    }
+}
