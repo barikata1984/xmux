@@ -3,6 +3,7 @@ members = [
     "crates/xmux-core",
     "crates/xmux-platform",
     "crates/xmux-terminal",
+    "crates/xmux-notification",
 ]
 resolver = "2"
 
@@ -10,6 +11,7 @@ resolver = "2"
 xmux-core = { path = "crates/xmux-core" }
 xmux-platform = { path = "crates/xmux-platform" }
 xmux-terminal = { path = "crates/xmux-terminal" }
+xmux-notification = { path = "crates/xmux-notification" }
 
 uuid = { version = "1", features = ["v4", "serde"] }
 serde = { version = "1", features = ["derive"] }
@@ -17,6 +19,7 @@ thiserror = "2"
 dirs = "6"
 alacritty_terminal = "0.26"
 arboard = { version = "3", features = ["wayland-data-control"] }
+libc = "0.2"
 
 [package]
 name = "xmux"
