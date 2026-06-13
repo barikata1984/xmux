@@ -1,3 +1,7 @@
+use std::time::Instant;
+
+use alacritty_terminal::index::{Column, Line, Point as TermPoint, Side};
+use alacritty_terminal::selection::{Selection, SelectionType};
 use alacritty_terminal::term::TermMode;
 use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::vte::ansi::{Color as TermColor, CursorShape, NamedColor};
@@ -28,11 +32,42 @@ const ANSI_COLORS: [[u8; 3]; 16] = [
     [255, 255, 255], // Bright White
 ];
 
+/// Selection highlight color (semi-transparent white overlay).
+const SELECTION_BG: Color = Color {
+    r: 0.3,
+    g: 0.5,
+    b: 0.8,
+    a: 0.45,
+};
+
+/// Double/triple-click threshold in milliseconds.
+const CLICK_THRESHOLD_MS: u128 = 300;
+
 pub struct TerminalView<'a> {
     pub terminal: &'a xmux_terminal::Terminal,
     pub cache: &'a Cache,
     pub cell_width: f32,
     pub cell_height: f32,
+}
+
+/// Widget state tracked by the canvas between frames.
+#[derive(Debug)]
+pub struct TerminalWidgetState {
+    is_selecting: bool,
+    last_click_time: Option<Instant>,
+    last_click_pos: Option<Point>,
+    click_count: u32,
+}
+
+impl Default for TerminalWidgetState {
+    fn default() -> Self {
+        Self {
+            is_selecting: false,
+            last_click_time: None,
+            last_click_pos: None,
+            click_count: 0,
+        }
+    }
 }
 
 /// Convert a terminal color to an iced Color, using the custom Colors table
@@ -87,23 +122,76 @@ fn convert_color(
     }
 }
 
+/// Convert a pixel position (relative to the canvas bounds) to a terminal grid
+/// point and the side of the cell the cursor is on.
+fn pixel_to_grid(
+    pos: Point,
+    bounds: Rectangle,
+    cell_width: f32,
+    cell_height: f32,
+    display_offset: usize,
+) -> (TermPoint, Side) {
+    let rel_x = (pos.x - bounds.x).max(0.0);
+    let rel_y = (pos.y - bounds.y).max(0.0);
+
+    let col = (rel_x / cell_width) as usize;
+    let row = (rel_y / cell_height) as i32;
+
+    // Determine which side of the cell the click is on.
+    let frac = rel_x / cell_width - col as f32;
+    let side = if frac < 0.5 { Side::Left } else { Side::Right };
+
+    // The display_iter yields Line(0) for the topmost visible line.
+    // For scrolled views, the actual grid line is offset. However, Selection
+    // works in viewport coordinates when created from renderable_content,
+    // so we use Line(row) which maps to what the display_iter yields.
+    // We need to account for display_offset to map to absolute grid coordinates.
+    let line = Line(row - display_offset as i32);
+    let point = TermPoint::new(line, Column(col));
+    (point, side)
+}
+
+/// Check if two pixel positions are close enough to count as the same spot for
+/// multi-click detection.
+fn positions_close(a: Point, b: Point, cell_width: f32, cell_height: f32) -> bool {
+    (a.x - b.x).abs() < cell_width * 2.0 && (a.y - b.y).abs() < cell_height * 2.0
+}
+
 impl<'a> canvas::Program<Message> for TerminalView<'a> {
-    type State = ();
+    type State = TerminalWidgetState;
 
     fn update(
         &self,
-        _state: &mut Self::State,
+        state: &mut Self::State,
         event: &Event,
-        _bounds: Rectangle,
-        _cursor: mouse::Cursor,
+        bounds: Rectangle,
+        cursor: mouse::Cursor,
     ) -> Option<Action<Message>> {
         match event {
+            // --- Keyboard events ---
             Event::Keyboard(keyboard::Event::KeyPressed {
                 key,
                 text,
                 modifiers,
                 ..
             }) => {
+                // Ctrl+Shift+C -> copy selection to clipboard.
+                if modifiers.control() && modifiers.shift() {
+                    if let Key::Character(ch) = key {
+                        if ch.as_str().eq_ignore_ascii_case("c") {
+                            let selected =
+                                self.terminal.with_term(|t| t.selection_to_string());
+                            if let Some(text) = selected {
+                                return Some(Action::publish(Message::Copy(text)));
+                            }
+                            return Some(Action::capture());
+                        }
+                        if ch.as_str().eq_ignore_ascii_case("v") {
+                            return Some(Action::publish(Message::Paste));
+                        }
+                    }
+                }
+
                 let is_app_cursor = self
                     .terminal
                     .with_term(|t| t.mode().contains(TermMode::APP_CURSOR));
@@ -114,13 +202,87 @@ impl<'a> canvas::Program<Message> for TerminalView<'a> {
                 }
                 None
             }
+
+            // --- Mouse button pressed (start selection) ---
+            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
+                let pos = cursor.position_in(bounds)?;
+                let display_offset =
+                    self.terminal.with_term(|t| t.grid().display_offset());
+                let (point, side) =
+                    pixel_to_grid(pos, bounds, self.cell_width, self.cell_height, display_offset);
+
+                // Determine click count for multi-click.
+                let now = Instant::now();
+                let click_count = match (state.last_click_time, state.last_click_pos) {
+                    (Some(last_time), Some(last_pos))
+                        if now.duration_since(last_time).as_millis() < CLICK_THRESHOLD_MS
+                            && positions_close(
+                                pos,
+                                last_pos,
+                                self.cell_width,
+                                self.cell_height,
+                            ) =>
+                    {
+                        (state.click_count % 3) + 1
+                    }
+                    _ => 1,
+                };
+                state.last_click_time = Some(now);
+                state.last_click_pos = Some(pos);
+                state.click_count = click_count;
+
+                let sel_type = match click_count {
+                    2 => SelectionType::Semantic,
+                    3 => SelectionType::Lines,
+                    _ => SelectionType::Simple,
+                };
+
+                let selection = Selection::new(sel_type, point, side);
+                self.terminal.with_term_mut(|t| {
+                    t.selection = Some(selection);
+                });
+
+                state.is_selecting = true;
+                Some(Action::capture())
+            }
+
+            // --- Mouse moved while selecting ---
+            Event::Mouse(mouse::Event::CursorMoved { position }) => {
+                if !state.is_selecting {
+                    return None;
+                }
+                let pos = *position;
+                // Ensure position is within bounds (or clamp).
+                let display_offset =
+                    self.terminal.with_term(|t| t.grid().display_offset());
+                let (point, side) =
+                    pixel_to_grid(pos, bounds, self.cell_width, self.cell_height, display_offset);
+
+                self.terminal.with_term_mut(|t| {
+                    if let Some(ref mut sel) = t.selection {
+                        sel.update(point, side);
+                    }
+                });
+
+                Some(Action::capture())
+            }
+
+            // --- Mouse button released (end selection) ---
+            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
+                if state.is_selecting {
+                    state.is_selecting = false;
+                    return Some(Action::capture());
+                }
+                None
+            }
+
             _ => None,
         }
     }
 
     fn draw(
         &self,
-        _state: &(),
+        _state: &TerminalWidgetState,
         renderer: &Renderer,
         _theme: &Theme,
         bounds: Rectangle,
@@ -141,6 +303,7 @@ impl<'a> canvas::Program<Message> for TerminalView<'a> {
                 let content = term.renderable_content();
                 let colors = content.colors;
                 let cursor = content.cursor;
+                let selection = content.selection;
 
                 // Draw cells from the grid iterator.
                 for indexed in content.display_iter {
@@ -158,27 +321,40 @@ impl<'a> canvas::Program<Message> for TerminalView<'a> {
                     let bg = convert_color(cell.bg, colors);
                     let fg = convert_color(cell.fg, colors);
 
-                    // Draw background if not the default black.
+                    // Check if this cell is within the selection.
+                    let in_selection = selection
+                        .as_ref()
+                        .map(|sel| sel.contains(point))
+                        .unwrap_or(false);
+
+                    // Draw background if not the default black, or if selected.
                     let default_bg = Color::from_rgb8(0, 0, 0);
-                    if bg != default_bg {
+                    let draw_bg = in_selection || bg != default_bg;
+                    if draw_bg {
                         let width = if cell.flags.contains(Flags::WIDE_CHAR) {
                             cw * 2.0
                         } else {
                             cw
                         };
+                        let cell_bg = if in_selection { SELECTION_BG } else { bg };
                         frame.fill_rectangle(
                             Point::new(x, y),
                             Size::new(width, ch),
-                            bg,
+                            cell_bg,
                         );
                     }
 
                     // Draw character.
                     if cell.c != ' ' && cell.c != '\0' {
+                        let text_color = if in_selection {
+                            Color::WHITE
+                        } else {
+                            fg
+                        };
                         frame.fill_text(canvas::Text {
                             content: cell.c.to_string(),
                             position: Point::new(x, y),
-                            color: fg,
+                            color: text_color,
                             size: Pixels(ch * 0.85),
                             font: Font::MONOSPACE,
                             ..canvas::Text::default()
@@ -249,3 +425,5 @@ impl<'a> canvas::Program<Message> for TerminalView<'a> {
         vec![geometry]
     }
 }
+
+use iced::keyboard::Key;

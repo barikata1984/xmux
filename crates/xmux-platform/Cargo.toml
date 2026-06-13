@@ -6,3 +6,4 @@ edition = "2021"
 [dependencies]
 xmux-core.workspace = true
 dirs.workspace = true
+arboard.workspace = true

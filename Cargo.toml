@@ -16,6 +16,7 @@ serde = { version = "1", features = ["derive"] }
 thiserror = "2"
 dirs = "6"
 alacritty_terminal = "0.26"
+arboard = { version = "3", features = ["wayland-data-control"] }
 
 [package]
 name = "xmux"

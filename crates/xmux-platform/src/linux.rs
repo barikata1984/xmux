@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Mutex;
 
+use arboard::Clipboard;
 use xmux_core::XmuxError;
 
 use crate::{
@@ -10,8 +12,11 @@ use crate::{
 
 pub struct LinuxPty;
 pub struct LinuxNotifier;
-pub struct LinuxClipboard;
 pub struct LinuxShell;
+
+pub struct LinuxClipboard {
+    clipboard: Mutex<Clipboard>,
+}
 
 impl PlatformPty for LinuxPty {
     fn spawn(&self, _config: &PtyConfig) -> Result<PtyHandle, XmuxError> {
@@ -36,13 +41,31 @@ impl PlatformNotifier for LinuxNotifier {
     }
 }
 
+impl LinuxClipboard {
+    pub fn new() -> Result<Self, XmuxError> {
+        let clipboard =
+            Clipboard::new().map_err(|e| XmuxError::Pty(format!("clipboard init: {e}")))?;
+        Ok(Self {
+            clipboard: Mutex::new(clipboard),
+        })
+    }
+}
+
 impl PlatformClipboard for LinuxClipboard {
     fn get_text(&self) -> Result<String, XmuxError> {
-        Err(XmuxError::Pty("LinuxClipboard is a stub".into()))
+        self.clipboard
+            .lock()
+            .map_err(|e| XmuxError::Pty(format!("clipboard lock: {e}")))?
+            .get_text()
+            .map_err(|e| XmuxError::Pty(format!("clipboard get: {e}")))
     }
 
-    fn set_text(&self, _text: &str) -> Result<(), XmuxError> {
-        Err(XmuxError::Pty("LinuxClipboard is a stub".into()))
+    fn set_text(&self, text: &str) -> Result<(), XmuxError> {
+        self.clipboard
+            .lock()
+            .map_err(|e| XmuxError::Pty(format!("clipboard lock: {e}")))?
+            .set_text(text.to_owned())
+            .map_err(|e| XmuxError::Pty(format!("clipboard set: {e}")))
     }
 }
 
@@ -77,10 +100,29 @@ impl PlatformShell for LinuxShell {
 }
 
 pub fn create_linux_platform() -> Platform {
+    let clipboard: Box<dyn PlatformClipboard> = match LinuxClipboard::new() {
+        Ok(cb) => Box::new(cb),
+        Err(e) => {
+            eprintln!("warning: clipboard unavailable ({e}), using no-op fallback");
+            Box::new(NoopClipboard)
+        }
+    };
     Platform {
         pty: Box::new(LinuxPty),
         notifier: Box::new(LinuxNotifier),
-        clipboard: Box::new(LinuxClipboard),
+        clipboard,
         shell: Box::new(LinuxShell),
+    }
+}
+
+/// Fallback clipboard when the real one cannot be initialised.
+struct NoopClipboard;
+
+impl PlatformClipboard for NoopClipboard {
+    fn get_text(&self) -> Result<String, XmuxError> {
+        Ok(String::new())
+    }
+    fn set_text(&self, _text: &str) -> Result<(), XmuxError> {
+        Ok(())
     }
 }
