@@ -4642,6 +4642,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "xmux-agent"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "xmux-core",
+]
+
+[[package]]
 name = "xmux-core"
 version = "0.1.0"
 dependencies = [

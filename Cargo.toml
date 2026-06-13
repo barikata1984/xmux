@@ -5,6 +5,7 @@ members = [
     "crates/xmux-terminal",
     "crates/xmux-notification",
     "crates/xmux-rpc",
+    "crates/xmux-agent",
 ]
 resolver = "2"
 
@@ -14,6 +15,7 @@ xmux-platform = { path = "crates/xmux-platform" }
 xmux-terminal = { path = "crates/xmux-terminal" }
 xmux-notification = { path = "crates/xmux-notification" }
 xmux-rpc = { path = "crates/xmux-rpc" }
+xmux-agent = { path = "crates/xmux-agent" }
 
 uuid = { version = "1", features = ["v4", "serde"] }
 serde = { version = "1", features = ["derive"] }
