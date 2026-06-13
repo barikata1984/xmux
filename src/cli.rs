@@ -43,6 +43,19 @@ pub enum Commands {
     },
     ListNotifications,
     ClearNotifications,
+    BrowserOpen {
+        url: String,
+        #[arg(long, default_value = "right")]
+        split: String,
+    },
+    BrowserList,
+    BrowserNavigate {
+        url: String,
+    },
+    BrowserEval {
+        script: String,
+    },
+    BrowserClose,
     TmuxCompat {
         #[arg(trailing_var_arg = true)]
         args: Vec<String>,
@@ -139,6 +152,26 @@ pub async fn run_cli(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
         }
         Commands::ClearNotifications => {
             let result = send_rpc(&socket, "notification.clear", serde_json::json!({})).await?;
+            println!("{}", result);
+        }
+        Commands::BrowserOpen { url, split } => {
+            let result = send_rpc(&socket, "browser.open", serde_json::json!({"url": url, "split": split})).await?;
+            println!("{}", result);
+        }
+        Commands::BrowserList => {
+            let result = send_rpc(&socket, "browser.list", serde_json::json!({})).await?;
+            println!("{}", serde_json::to_string_pretty(&result)?);
+        }
+        Commands::BrowserNavigate { url } => {
+            let result = send_rpc(&socket, "browser.navigate", serde_json::json!({"url": url})).await?;
+            println!("{}", result);
+        }
+        Commands::BrowserEval { script } => {
+            let result = send_rpc(&socket, "browser.eval", serde_json::json!({"script": script})).await?;
+            println!("{}", result);
+        }
+        Commands::BrowserClose => {
+            let result = send_rpc(&socket, "browser.close", serde_json::json!({})).await?;
             println!("{}", result);
         }
         Commands::TmuxCompat { args } => {
