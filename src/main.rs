@@ -53,6 +53,7 @@ pub enum Message {
     ToggleNotificationPanel,
     MarkAllNotificationsRead,
     ClearNotifications,
+    InjectTestNotification,
 }
 
 impl App {

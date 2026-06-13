@@ -4459,6 +4459,7 @@ dependencies = [
  "alacritty_terminal",
  "iced",
  "xmux-core",
+ "xmux-notification",
  "xmux-platform",
  "xmux-terminal",
 ]
