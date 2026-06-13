@@ -1,7 +1,7 @@
 # xmux TODO
 
 ## P0: 最小ターミナル (5 日)
-- [ ] P0-T1: Cargo workspace 初期化 (~700 行)
+- [x] P0-T1: Cargo workspace 初期化 (~700 行)
 - [ ] P0-T2: PTY 生成と I/O ループ (alacritty_terminal::tty + EventLoop)
 - [ ] P0-T3: alacritty_terminal 統合
 - [ ] P0-T4: Iced Canvas ターミナル描画 (~450 行)

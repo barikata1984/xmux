@@ -20,5 +20,8 @@ pixi.lock
 .devcontainer/.env
 .devcontainer/docker-compose.override.yaml
 
+# Rust
+/target/
+
 # Claude Code local settings
 .claude/settings.local.json
