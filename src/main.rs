@@ -1,4 +1,5 @@
 mod cli;
+mod git_info;
 mod input;
 mod pane;
 mod terminal_view;
@@ -52,6 +53,8 @@ struct App {
     sidebar_visible: bool,
     notification_manager: NotificationManager,
     notification_panel_visible: bool,
+    git_info: Option<git_info::GitInfo>,
+    tick_count: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -88,6 +91,8 @@ impl App {
                 sidebar_visible: true,
                 notification_manager: NotificationManager::new(1000),
                 notification_panel_visible: false,
+                git_info: None,
+                tick_count: 0,
             },
             Task::none(),
         )
@@ -114,6 +119,14 @@ impl App {
     fn update(&mut self, message: Message) {
         match message {
             Message::Tick => {
+                // Refresh git info every 200 ticks (~10 seconds at 50ms)
+                self.tick_count += 1;
+                if self.tick_count % 200 == 0 {
+                    if let Ok(cwd) = std::env::current_dir() {
+                        self.git_info = git_info::GitInfo::from_dir(&cwd);
+                    }
+                }
+
                 // Process events on all panes in all workspaces and clear cache if needed.
                 for workspace in &mut self.workspace_manager.workspaces {
                     for (_, pane_state) in workspace.panes.iter_mut() {
@@ -285,11 +298,22 @@ impl App {
                 .map(|(_, ps)| self.notification_manager.unread_count_for_pane(&ps.id))
                 .sum();
 
-            let label_text = if unread > 0 {
+            let mut label_text = if unread > 0 {
                 format!("{} ({})", ws.name, unread)
             } else {
                 ws.name.clone()
             };
+
+            // Append git branch for active workspace
+            if is_active {
+                if let Some(ref gi) = self.git_info {
+                    if let Some(ref branch) = gi.branch {
+                        let dirty = if gi.is_dirty { "*" } else { "" };
+                        label_text = format!("{} [{}{dirty}]", label_text, branch);
+                    }
+                }
+            }
+
             let label = text(label_text).size(14);
 
             let btn = button(label)
