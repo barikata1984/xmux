@@ -10,6 +10,7 @@ use iced::widget::canvas::Canvas;
 use iced::widget::pane_grid;
 use iced::widget::{button, column, container, row, text, scrollable};
 use iced::{Background, Color, Element, Length, Size, Subscription, Task, Theme};
+use iced::futures::{StreamExt, SinkExt};
 
 use pane::PaneState;
 use terminal_view::TerminalView;
@@ -60,6 +61,7 @@ impl App {
     fn new() -> (Self, Task<Message>) {
         let workspace_manager = WorkspaceManager::new().expect("failed to create workspace manager");
         let platform = create_platform();
+        spawn_rpc_server();
         (
             Self {
                 workspace_manager,
@@ -360,4 +362,69 @@ impl App {
     fn subscription(&self) -> Subscription<Message> {
         iced::time::every(Duration::from_millis(50)).map(|_| Message::Tick)
     }
+}
+
+// RPC server runs independently as a background task spawned in App::new
+fn spawn_rpc_server() {
+    tokio::spawn(async {
+        use tokio::net::UnixListener;
+        use tokio_util::codec::{Framed, LinesCodec};
+
+        let uid = unsafe { libc::getuid() };
+        let socket_path = format!("/tmp/xmux-{uid}.sock");
+        let _ = std::fs::remove_file(&socket_path);
+
+        let listener = match UnixListener::bind(&socket_path) {
+            Ok(l) => l,
+            Err(e) => {
+                eprintln!("RPC bind failed: {e}");
+                return;
+            }
+        };
+
+        // Set permissions to 0600
+        unsafe {
+            let path_c = std::ffi::CString::new(socket_path.as_str()).unwrap();
+            libc::chmod(path_c.as_ptr(), 0o600);
+        }
+
+        loop {
+            match listener.accept().await {
+                Ok((stream, _)) => {
+                    tokio::spawn(async move {
+                        let mut framed = Framed::new(stream, LinesCodec::new());
+                        while let Some(Ok(line)) = framed.next().await {
+                            let request: xmux_rpc::protocol::RpcRequest = match serde_json::from_str(&line) {
+                                Ok(r) => r,
+                                Err(_) => {
+                                    let resp = xmux_rpc::protocol::RpcResponse::error(None, -32700, "Parse error".into());
+                                    let _ = framed.send(serde_json::to_string(&resp).unwrap()).await;
+                                    continue;
+                                }
+                            };
+
+                            if xmux_rpc::handler::is_system_method(&request.method) {
+                                let result = xmux_rpc::handler::handle_system_method(&request.method, &request.params);
+                                let resp = match result {
+                                    Ok(v) => xmux_rpc::protocol::RpcResponse::success(request.id, v),
+                                    Err(e) => xmux_rpc::protocol::RpcResponse::error(request.id, e.code, e.message),
+                                };
+                                let _ = framed.send(serde_json::to_string(&resp).unwrap()).await;
+                            } else {
+                                // For app methods, we currently don't have a way to communicate with iced
+                                // from a pure async task without channels
+                                let resp = xmux_rpc::protocol::RpcResponse::error(
+                                    request.id,
+                                    -32603,
+                                    "App-state methods not yet implemented".into()
+                                );
+                                let _ = framed.send(serde_json::to_string(&resp).unwrap()).await;
+                            }
+                        }
+                    });
+                }
+                Err(e) => eprintln!("RPC accept error: {e}"),
+            }
+        }
+    });
 }
