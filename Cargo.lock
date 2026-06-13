@@ -4670,6 +4670,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "xmux-math"
+version = "0.1.0"
+dependencies = [
+ "xmux-core",
+]
+
+[[package]]
 name = "xmux-notification"
 version = "0.1.0"
 dependencies = [

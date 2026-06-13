@@ -8,6 +8,7 @@ members = [
     "crates/xmux-agent",
     "crates/xmux-session",
     "crates/xmux-browser",
+    "crates/xmux-math",
 ]
 resolver = "2"
 
@@ -20,6 +21,7 @@ xmux-rpc = { path = "crates/xmux-rpc" }
 xmux-agent = { path = "crates/xmux-agent" }
 xmux-session = { path = "crates/xmux-session" }
 xmux-browser = { path = "crates/xmux-browser" }
+xmux-math = { path = "crates/xmux-math" }
 
 uuid = { version = "1", features = ["v4", "serde"] }
 serde = { version = "1", features = ["derive"] }
