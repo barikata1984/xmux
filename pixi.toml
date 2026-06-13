@@ -14,7 +14,7 @@
 #   - the directory name for Claude Code session-history persistence
 # `init-env.sh` extracts this value at host-side initialisation; do not
 # duplicate it elsewhere.
-name = "my-project"           # TODO: rename to your project name
+name = "xmux"           # TODO: rename to your project name
 version = "0.1.0"
 description = "Devcontainer Python environment managed by pixi"
 channels = ["conda-forge"]
