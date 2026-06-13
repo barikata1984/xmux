@@ -1627,72 +1627,104 @@ Sonnet B は portable-pty の完全廃止を提案したが, 以下の理由で 
 
 ---
 
-### P7: 数式レンダリング + クロスプラットフォーム仕上げ (4 日)
+### P7: 数式レンダリング (5 日)
 
-**目標**: ターミナル出力中の LaTeX 数式をインライン描画. macOS/Windows のプラットフォーム抽象レイヤー実装. 全体の品質仕上げ.
+**目標**: ターミナル出力中の LaTeX 数式をインライン描画. 描画された数式領域を選択すると元の LaTeX ソースがコピーされる.
 
-**完了条件**: `echo '$E = mc^2$'` の出力でインラインに数式がレンダリング表示される. macOS で `cargo build` が通り, 基本的なターミナル操作が動作する.
+**完了条件**: `echo '$E = mc^2$'` の出力でインラインに数式がレンダリング表示される. `echo -e '\x1b]1337;LaTeX='$(echo -n '\frac{a}{b}' | base64)'\x07'` で分数が表示される. 数式領域を選択してコピーすると元の LaTeX テキストが得られる.
+
+**推定工数**: 5 日
+
+**前提 (調査済み)**:
+- RaTeX の parser/layout/render は crates.io 未公開 (ratex-types のみ). 使用不可.
+- 代替として typst + mitex (LaTeX→Typst 変換) を採用. 両方 crates.io 公開済み, 純 Rust.
+- テキスト選択問題は xmux では非問題: GUI アプリのため描画レイヤーと選択レイヤーが独立. alacritty_terminal のセルグリッドが元のテキストを保持し, 選択/コピーはグリッドから読む.
+- 既存実装: MathDetector ($/$$ 検出) と MathRenderer (スタブ) は `crates/xmux-math/` に作成済み.
+
+#### タスク
+
+**P7-T1a: MathDetector + MathRenderer スタブ [完了]**
+- xmux-math クレート作成済み. MathDetector ($/$$), MathRenderer (スタブ RGBA), テスト 10 件.
+
+**P7-T1b: レンダリングバックエンド (typst + mitex)**
+- 入力: P7-T1a (MathRenderer スタブ)
+- 出力: `crates/xmux-math/src/renderer.rs` 更新
+- 実装内容:
+  - MathRenderer のスタブを typst + mitex バックエンドに差し替え
+  - パイプライン: LaTeX → `mitex` (LaTeX→Typst 数式構文) → `typst` (レイアウト) → `typst-render` (tiny-skia ラスタライズ) → RGBA バッファ
+  - キャッシュ: LaTeX 文字列をキーに HashMap でレンダリング結果をキャッシュ (既存)
+  - RenderedMath にベースライン情報を追加:
+    ```rust
+    pub struct RenderedMath {
+        pub pixels: Vec<u8>,  // RGBA
+        pub width: u32,
+        pub height: u32,
+        pub baseline_offset: f32,  // 画像上端からベースラインまでのピクセル数
+    }
+    ```
+- 検証方法: `MathRenderer::render("\\frac{a}{b}", 16.0, [255,255,255,255])` が分数画像を返す. `render("E=mc^2", ...)` が等式を返す.
+- 推定規模: M (~200 行)
+- 使用 crate: `mitex-parser`, `mitex-spec`, `typst`, `typst-render`, `tiny-skia`
+- 注意点:
+  - typst の依存は重い (typst-library, fonts 等). ビルド時間が増加する.
+  - mitex の LaTeX カバレッジは KaTeX より狭い可能性がある. 未対応構文はフォールバックとしてソーステキストをそのまま表示.
+  - typst/mitex が devcontainer 環境でビルドできるか, 最初に `cargo check` で検証すること.
+  - **代替案**: typst がビルドできない場合, `katex-rs` (QuickJS 内蔵) + `resvg` (SVG→PNG) を検討.
+
+**P7-T1c: Canvas オーバーレイ統合**
+- 入力: P7-T1b (実レンダラー), P0-T4 (terminal_view.rs)
+- 出力: `src/terminal_view.rs` 更新, `crates/xmux-math/src/overlay.rs`
+- 実装内容:
+  - terminal_view.rs の `draw()` でセルグリッドテキストから数式領域を検出:
+    1. 表示中の各行のテキストを取得
+    2. MathDetector::find_math() で LaTeX 範囲を特定
+    3. 範囲に対応するセル座標 (行, 列開始, 列終了) を算出
+  - 検出した数式領域の描画:
+    1. 該当セル範囲のテキスト描画をスキップ
+    2. MathRenderer でレンダリングした画像を取得
+    3. セル領域のピクセル矩形 (`col_start * cell_width`, `row * cell_height`, `num_cols * cell_width`, `cell_height`) を算出
+    4. 画像をセル領域内に配置:
+       - インライン ($): 高さを `cell_height` にスケール, ベースライン合わせ, 水平中央配置, 余白は背景色
+       - ディスプレイ ($$): `ceil(image_height / cell_height)` 行分を使用, 水平中央配置
+    5. `frame.fill_rectangle()` で背景クリア後, 画像ピクセルを Canvas に描画
+  - 選択/コピー: 変更不要. alacritty_terminal グリッドが元の LaTeX テキストを保持しており, 既存の選択ロジックがそのまま動作する.
+  - MathRenderer を App 構造体に保持し, 全ペインで共有
+- 検証方法: `echo '$\frac{a}{b}$'` → 分数が描画される. 数式部分をドラッグ選択 → コピーすると `$\frac{a}{b}$` が得られる.
+- 推定規模: L (~350 行)
+- 使用 crate: `iced` (canvas)
+- 注意点:
+  - Canvas への画像描画: `iced::widget::canvas::Frame` には直接 image 描画 API がない. `frame.fill_rectangle()` でピクセル単位で描画するか, `iced::widget::image::Handle` + レイヤー合成を検討.
+  - パフォーマンス: 可視領域の数式のみレンダリング. スクロール外の数式はスキップ.
+  - Iced Canvas の制約: 部分再描画不可のため, 数式が含まれるフレームは全体再描画. ダメージトラッキング (P5-T4) と組み合わせて不要な再描画を抑制.
+
+**P7-T1d: OSC 1337 LaTeX プロトコル**
+- 入力: P2-T1 (OscParser)
+- 出力: `crates/xmux-notification/src/parser.rs` 更新, `crates/xmux-math/src/detector.rs` 更新
+- 実装内容:
+  - OscParser に OSC 1337 の LaTeX サブコマンドを追加:
+    - `\x1b]1337;LaTeX=<base64>\x07` を検出
+    - base64 デコードして LaTeX 文字列を抽出
+    - 新しいイベント型 `OscMathExpression { latex: String }` を追加
+  - Terminal がこのイベントを受け取り, セルグリッド上に LaTeX ソースを書き込む (表示は P7-T1c のオーバーレイが担当)
+- 検証方法: `echo -e '\x1b]1337;LaTeX='$(echo -n 'E=mc^2' | base64)'\x07'` → 数式が表示される
+- 推定規模: S (~100 行)
+- 使用 crate: `base64`
+- 注意点:
+  - iTerm2 の OSC 1337 は多機能 (画像, プロファイル等). LaTeX サブコマンドのみ実装, 他は無視.
+
+---
+
+### P8: クロスプラットフォーム + 品質仕上げ (4 日)
+
+**目標**: macOS/Windows のプラットフォーム抽象レイヤー実装. 全体の品質仕上げ.
+
+**完了条件**: macOS で `cargo build` が通り, 基本的なターミナル操作が動作する.
 
 **推定工数**: 4 日
 
 #### タスク
 
-**P7-T1: RaTeX 統合 — 数式レンダリング**
-- 入力: P5 完成
-- 出力: `crates/xmux-math/src/lib.rs`
-- 実装内容:
-  - `MathRenderer`:
-    ```rust
-    pub struct MathRenderer {
-        cache: HashMap<String, RenderedMath>,
-    }
-
-    pub struct RenderedMath {
-        pub pixels: Vec<u8>,  // RGBA
-        pub width: u32,
-        pub height: u32,
-    }
-
-    impl MathRenderer {
-        pub fn new() -> Self;
-        pub fn render(&mut self, latex: &str, font_size: f32, fg_color: [u8; 4]) -> Result<RenderedMath, XmuxError>;
-    }
-    ```
-  - **[検証済み] RaTeX は crates.io に公開済み** (v0.1.11, 2026 年 5 月 31 日時点). 利用可能な crate 群:
-    - `ratex-types` (共有型), `ratex-lexer`, `ratex-parser`, `ratex-layout`, `ratex-render` (PNG/tiny-skia), `ratex-svg`, `ratex-katex-fonts` (KaTeX TTF 埋め込み)
-    - `ratex-pdf`, `ratex-wasm`, `ratex-ffi` (今回は不要)
-  - **Cargo.toml**:
-    ```toml
-    ratex-parser = "0.1"
-    ratex-layout = "0.1"
-    ratex-render = { version = "0.1", features = ["embed-fonts"] }
-    # embed-fonts feature: ratex-katex-fonts を内包し, 実行時フォントディレクトリ不要
-    ```
-  - パイプライン: `ratex-parser` → `ratex-layout` (DisplayList) → `ratex-render` (tiny-skia Pixmap) → RGBA バッファ
-    ```rust
-    use ratex_parser::parse;
-    use ratex_layout::layout;
-    use ratex_render::render_to_pixmap;
-
-    let ast = parse(latex)?;
-    let display_list = layout(&ast, font_size)?;
-    let pixmap = render_to_pixmap(&display_list, fg_color)?;
-    // pixmap.data() → &[u8] (RGBA)
-    ```
-    ※ 実際の関数シグネチャは crates.io の docs.rs で確認してから実装すること (上記は概念的な記述).
-  - 数式検出: ターミナル出力中の `$...$` または `$$...$$` をパターンマッチ
-    - カスタム OSC シーケンスも検討: `\x1b]1337;LaTeX=<base64>\x07` (iTerm2 スタイル)
-  - キャッシュ: 同じ LaTeX 文字列は再レンダリングしない
-  - 表示: Iced Canvas 上に `Image` としてインライン描画. セル行の高さを数式高さに合わせて動的調整
-- 検証方法: `echo -e '\x1b]1337;LaTeX='$(echo -n 'E=mc^2' | base64)'\x07'` → ターミナル出力に数式画像表示
-- 推定規模: M (~300 行)
-- 使用 crate: `ratex-parser`, `ratex-layout`, `ratex-render` (embed-fonts feature)
-- 注意点:
-  - RaTeX は CPU レンダリング (tiny-skia). 大量の数式を同時描画するとパフォーマンスに影響 → キャッシュ + 可視領域のみレンダリング.
-  - `embed-fonts` feature を有効化すること. 無効のまま実行すると実行時にフォントディレクトリが必要になりポータビリティが低下する.
-  - **代替案** (RaTeX API が利用困難な場合): `pulldown-latex` crate (crates.io 公開済み) は LaTeX → MathML 変換に特化しており, PNG 出力を持たない. ラスタライズが必要なため xmux には不向き. 代わりに `katex-rs` (wasm-js ブリッジ) + `resvg` (SVG → PNG) の組み合わせを検討する.
-
-**P7-T2: macOS プラットフォーム実装**
+**P8-T1: macOS プラットフォーム実装**
 - 入力: P0-T1 (platform traits)
 - 出力: `crates/xmux-platform/src/macos.rs`
 - 実装内容:
@@ -1706,7 +1738,7 @@ Sonnet B は portable-pty の完全廃止を提案したが, 以下の理由で 
 - 使用 crate: (既存 crate の macOS バックエンド)
 - 注意点: macOS の PTY は Linux と同じ POSIX API だが, シグナルハンドリングに差異あり. `portable-pty` が吸収するため, 大きな問題はないはず. Iced の macOS 対応は良好
 
-**P7-T3: Windows プラットフォーム実装**
+**P8-T2: Windows プラットフォーム実装**
 - 入力: P0-T1 (platform traits)
 - 出力: `crates/xmux-platform/src/windows.rs`
 - 実装内容:
@@ -1720,7 +1752,7 @@ Sonnet B は portable-pty の完全廃止を提案したが, 以下の理由で 
 - 使用 crate: (既存 crate の Windows バックエンド)
 - 注意点: Windows の ConPTY は制約が多い (ANSI シーケンスの一部未対応). `alacritty_terminal` の Windows 対応状況を確認. 名前付きパイプの JSON-RPC サーバーは `tokio::net::windows::named_pipe` を使う
 
-**P7-T4: 品質仕上げ**
+**P8-T3: 品質仕上げ**
 - 入力: 全フェーズ
 - 出力: 各所のバグ修正, パフォーマンスチューニング
 - 実装内容:
@@ -1749,7 +1781,7 @@ Sonnet B は portable-pty の完全廃止を提案したが, 以下の理由で 
 | **[新規] arboard の `Send + Sync` 非互換** | `PlatformClipboard` trait が `Send + Sync` を要求するが arboard が満たさない可能性 | 中 | `Mutex<Clipboard>` でラップするか, 専用スレッド + mpsc チャネル委譲パターンで対処. |
 | Iced Canvas の描画パフォーマンスが不足 | 大量テキスト描画で遅延 | 中 | ダメージトラッキング + グリフキャッシュ. 改善不足なら `iced_wgpu` の低レベル API でカスタムパイプライン |
 | alacritty_terminal 0.26 の API 破壊的変更 | コンパイルエラー, 動作不良 | 低 | バージョンを固定 (`=0.26.0`). COSMIC Terminal のコードを参考パターンとして参照 |
-| **[更新] RaTeX API シグネチャ未確認** | パイプライン実装でコンパイルエラー | 低 | RaTeX は crates.io v0.1.11 で公開済み. 実装前に `docs.rs/ratex-render` で実際の関数シグネチャを確認してから実装する. |
+| **[更新] RaTeX 未公開 → typst + mitex 採用** | 数式レンダリングバックエンド変更 | 確実 (既知) | RaTeX の parser/layout/render は crates.io 未公開 (ratex-types のみ). typst + mitex (LaTeX→Typst 変換) に切り替え. typst の依存が重いためビルド時間増加. mitex の LaTeX カバレッジ不足時はソーステキストをフォールバック表示. |
 | **[更新] `pane_grid::State` の非シリアライズ** | セッション保存でコンパイルエラー | 確実 (既知) | `pane_grid::State` は Serialize/Deserialize を持たない (検証済み). `pane_grid::Configuration` 経由の変換レイヤーで対処する (P5-T1 に設計済み). |
 | **[更新] tmux 互換シムの互換性不足** | Claude Code teammate モードが動作しない | 中 | Claude Code は `$TMUX` 非空検出で tmux セッション利用を決定. tmux コマンドの最小セット (`new-session`, `split-window`, `send-keys`, `capture-pane`, `list-panes`, `display-message`) を正確に実装. |
 | **[解消] ~~portable-pty の Linux PTY 挙動差異~~** | ~~一部ターミナルアプリが動作しない~~ | — | Linux では alacritty_terminal::tty を直接使用する方針に確定 (§2 PTY 管理方式の設計判断を参照). portable-pty は macOS/Windows のみ (P7). |
@@ -1871,7 +1903,7 @@ apt-get install -y libxkbcommon-dev libwayland-dev libfontconfig1-dev pkg-config
 | P6-T2 (ブラウザ RPC) | 300 行 | 350 行 | eval の oneshot チャネル実装追加 |
 | P6-T3 (ブラウザ連携) | 200 行 | 200 行 | 変更なし |
 | P7-T1 (RaTeX) | 300 行 | 300 行 | crate 公開確認済み, 変更なし |
-| P7-T2~T4 (その他) | 850 行 | 850 行 | 変更なし |
+| P8-T1~T3 (その他) | 850 行 | 850 行 | 変更なし |
 | **P5+P6+P7 合計** | **3,150 行** | **3,450 行** | |
 
 P5+P6+P7 は 15 日 (P5: 4 日 + P6: 7 日 + P7: 4 日). P6 の GTK 統合が 1 週間以内に解決しない場合は `iced_webview_v2` への切り替えを即断する判断基準を設けること.
