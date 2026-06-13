@@ -28,6 +28,7 @@ pub struct OscNotification {
     pub protocol: OscProtocol,
     pub title: Option<String>,
     pub body: String,
+    pub external_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -141,23 +142,25 @@ impl OscParser {
                 protocol: OscProtocol::Osc9,
                 title: None,
                 body: data.into_owned(),
+                external_id: None,
             }),
             "99" => {
                 // Format: i=<id>:<body> or just <body>
-                let body = if let Some(rest) = data.strip_prefix("i=") {
-                    if let Some((_id, body)) = rest.split_once(':') {
-                        body.to_string()
+                let (external_id, body) = if let Some(rest) = data.strip_prefix("i=") {
+                    if let Some((id, body)) = rest.split_once(':') {
+                        (Some(id.to_string()), body.to_string())
                     } else {
-                        data.into_owned()
+                        (None, data.into_owned())
                     }
                 } else {
-                    data.into_owned()
+                    (None, data.into_owned())
                 };
                 Some(OscNotification {
                     id: NotificationId::new(),
                     protocol: OscProtocol::Osc99,
                     title: None,
                     body,
+                    external_id,
                 })
             }
             "777" => {
@@ -169,6 +172,7 @@ impl OscParser {
                         protocol: OscProtocol::Osc777,
                         title: Some(parts[1].to_string()),
                         body: parts[2].to_string(),
+                        external_id: None,
                     })
                 } else if parts.len() >= 2 && parts[0] == "notify" {
                     Some(OscNotification {
@@ -176,6 +180,7 @@ impl OscParser {
                         protocol: OscProtocol::Osc777,
                         title: None,
                         body: parts[1].to_string(),
+                        external_id: None,
                     })
                 } else {
                     None
@@ -235,6 +240,7 @@ mod tests {
         assert_eq!(notifs.len(), 1);
         assert_eq!(notifs[0].protocol, OscProtocol::Osc99);
         assert_eq!(notifs[0].body, "task complete");
+        assert_eq!(notifs[0].external_id.as_deref(), Some("123"));
     }
 
     #[test]

@@ -91,6 +91,7 @@ mod tests {
             protocol: OscProtocol::Osc9,
             title: None,
             body: body.to_string(),
+            external_id: None,
         }
     }
 

@@ -198,6 +198,7 @@ impl App {
                     protocol: OscProtocol::Osc9,
                     title: Some("Test".to_string()),
                     body: "Test notification from Ctrl+Shift+I".to_string(),
+                    external_id: None,
                 };
                 let pane_id = self.workspace_manager.active()
                     .focus
