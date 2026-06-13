@@ -2,17 +2,20 @@
 members = [
     "crates/xmux-core",
     "crates/xmux-platform",
+    "crates/xmux-terminal",
 ]
 resolver = "2"
 
 [workspace.dependencies]
 xmux-core = { path = "crates/xmux-core" }
 xmux-platform = { path = "crates/xmux-platform" }
+xmux-terminal = { path = "crates/xmux-terminal" }
 
 uuid = { version = "1", features = ["v4", "serde"] }
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
 dirs = "6"
+alacritty_terminal = "0.26"
 
 [package]
 name = "xmux"

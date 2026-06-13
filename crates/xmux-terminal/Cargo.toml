@@ -1,0 +1,8 @@
+[package]
+name = "xmux-terminal"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+xmux-core.workspace = true
+alacritty_terminal.workspace = true
