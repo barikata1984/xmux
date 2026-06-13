@@ -1,6 +1,7 @@
 mod input;
 mod pane;
 mod terminal_view;
+mod workspace;
 
 use std::borrow::Cow;
 use std::time::Duration;
@@ -11,6 +12,7 @@ use iced::{Element, Length, Size, Subscription, Task};
 
 use pane::PaneState;
 use terminal_view::TerminalView;
+use workspace::WorkspaceManager;
 use xmux_platform::{PlatformClipboard, create_platform};
 
 fn main() -> iced::Result {
@@ -23,8 +25,7 @@ fn main() -> iced::Result {
 }
 
 struct App {
-    panes: pane_grid::State<PaneState>,
-    focus: Option<pane_grid::Pane>,
+    workspace_manager: WorkspaceManager,
     cell_width: f32,
     cell_height: f32,
     clipboard: Box<dyn PlatformClipboard>,
@@ -39,17 +40,18 @@ pub enum Message {
     ClosePane(pane_grid::Pane),
     FocusPane(pane_grid::Pane),
     PaneResized(pane_grid::ResizeEvent),
+    NewWorkspace,
+    NextWorkspace,
+    PrevWorkspace,
 }
 
 impl App {
     fn new() -> (Self, Task<Message>) {
-        let pane_state = PaneState::new().expect("failed to create initial pane");
-        let (panes, first_pane) = pane_grid::State::new(pane_state);
+        let workspace_manager = WorkspaceManager::new().expect("failed to create workspace manager");
         let platform = create_platform();
         (
             Self {
-                panes,
-                focus: Some(first_pane),
+                workspace_manager,
                 cell_width: 8.4,
                 cell_height: 16.8,
                 clipboard: platform.clipboard,
@@ -59,8 +61,9 @@ impl App {
     }
 
     fn title(&self) -> String {
-        if let Some(pane) = self.focus {
-            if let Some(state) = self.panes.get(pane) {
+        let active_ws = self.workspace_manager.active();
+        if let Some(pane) = active_ws.focus {
+            if let Some(state) = active_ws.panes.get(pane) {
                 let t = state.terminal.title();
                 if t.is_empty() {
                     String::from("xmux")
@@ -78,10 +81,12 @@ impl App {
     fn update(&mut self, message: Message) {
         match message {
             Message::Tick => {
-                // Process events on all panes and clear cache if needed.
-                for (_, pane_state) in self.panes.iter_mut() {
-                    if pane_state.terminal.process_events() {
-                        pane_state.cache.clear();
+                // Process events on all panes in all workspaces and clear cache if needed.
+                for workspace in &mut self.workspace_manager.workspaces {
+                    for (_, pane_state) in workspace.panes.iter_mut() {
+                        if pane_state.terminal.process_events() {
+                            pane_state.cache.clear();
+                        }
                     }
                 }
             }
@@ -91,8 +96,9 @@ impl App {
                 }
             }
             Message::Paste => {
-                if let Some(pane) = self.focus {
-                    if let Some(state) = self.panes.get_mut(pane) {
+                let active_ws = self.workspace_manager.active_mut();
+                if let Some(pane) = active_ws.focus {
+                    if let Some(state) = active_ws.panes.get_mut(pane) {
                         match self.clipboard.get_text() {
                             Ok(text) if !text.is_empty() => {
                                 let is_bracketed = state.terminal.with_term(|t| {
@@ -114,26 +120,41 @@ impl App {
                 }
             }
             Message::Split(axis, pane) => {
+                let active_ws = self.workspace_manager.active_mut();
                 if let Ok(new_state) = PaneState::new() {
-                    if let Some((_new_pane, _split)) = self.panes.split(axis, pane, new_state) {
+                    if let Some((_new_pane, _split)) = active_ws.panes.split(axis, pane, new_state) {
                         // Pane split successful.
                     }
                 }
             }
             Message::ClosePane(pane) => {
-                if let Some((state, _surviving_pane)) = self.panes.close(pane) {
+                let active_ws = self.workspace_manager.active_mut();
+                if let Some((state, _surviving_pane)) = active_ws.panes.close(pane) {
                     state.terminal.shutdown();
                     // Update focus if the closed pane was focused.
-                    if self.focus == Some(pane) {
-                        self.focus = self.panes.iter().next().map(|(p, _)| *p);
+                    if active_ws.focus == Some(pane) {
+                        active_ws.focus = active_ws.panes.iter().next().map(|(p, _)| *p);
                     }
                 }
             }
             Message::FocusPane(pane) => {
-                self.focus = Some(pane);
+                let active_ws = self.workspace_manager.active_mut();
+                active_ws.focus = Some(pane);
             }
             Message::PaneResized(resize_event) => {
-                self.panes.resize(resize_event.split, resize_event.ratio);
+                let active_ws = self.workspace_manager.active_mut();
+                active_ws.panes.resize(resize_event.split, resize_event.ratio);
+            }
+            Message::NewWorkspace => {
+                if let Err(e) = self.workspace_manager.create_workspace() {
+                    eprintln!("failed to create workspace: {e}");
+                }
+            }
+            Message::NextWorkspace => {
+                self.workspace_manager.next_workspace();
+            }
+            Message::PrevWorkspace => {
+                self.workspace_manager.prev_workspace();
             }
         }
     }
@@ -141,8 +162,9 @@ impl App {
     fn view(&self) -> Element<'_, Message> {
         let cell_width = self.cell_width;
         let cell_height = self.cell_height;
+        let active_ws = self.workspace_manager.active();
 
-        let pane_grid = pane_grid::PaneGrid::new(&self.panes, |pane, state, _is_focused| {
+        let pane_grid = pane_grid::PaneGrid::new(&active_ws.panes, |pane, state, _is_focused| {
             let view = TerminalView {
                 terminal: &state.terminal,
                 cache: &state.cache,

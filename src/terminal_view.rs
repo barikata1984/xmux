@@ -181,6 +181,9 @@ impl<'a> canvas::Program<Message> for TerminalView<'a> {
                 // Ctrl+Shift+D -> split pane vertically (left/right).
                 // Ctrl+Shift+E -> split pane horizontally (top/bottom).
                 // Ctrl+Shift+W -> close pane.
+                // Ctrl+Shift+T -> new workspace.
+                // Ctrl+Shift+N -> next workspace.
+                // Ctrl+Shift+P -> previous workspace.
                 if modifiers.control() && modifiers.shift() {
                     if let Key::Character(ch) = key {
                         match ch.as_str() {
@@ -209,6 +212,15 @@ impl<'a> canvas::Program<Message> for TerminalView<'a> {
                             }
                             "w" => {
                                 return Some(Action::publish(Message::ClosePane(self.pane)));
+                            }
+                            "t" => {
+                                return Some(Action::publish(Message::NewWorkspace));
+                            }
+                            "n" => {
+                                return Some(Action::publish(Message::NextWorkspace));
+                            }
+                            "p" => {
+                                return Some(Action::publish(Message::PrevWorkspace));
                             }
                             _ => {}
                         }
