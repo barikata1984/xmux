@@ -2,6 +2,7 @@ mod cli;
 mod git_info;
 mod input;
 mod pane;
+mod port_monitor;
 mod terminal_view;
 mod tmux_shim;
 mod workspace;
@@ -55,6 +56,7 @@ struct App {
     notification_manager: NotificationManager,
     notification_panel_visible: bool,
     git_info: Option<git_info::GitInfo>,
+    listening_ports: Vec<u16>,
     tick_count: usize,
 }
 
@@ -93,6 +95,7 @@ impl App {
                 notification_manager: NotificationManager::new(1000),
                 notification_panel_visible: false,
                 git_info: None,
+                listening_ports: Vec::new(),
                 tick_count: 0,
             },
             Task::none(),
@@ -120,12 +123,13 @@ impl App {
     fn update(&mut self, message: Message) {
         match message {
             Message::Tick => {
-                // Refresh git info every 200 ticks (~10 seconds at 50ms)
+                // Refresh git info and listening ports every 200 ticks (~10 seconds at 50ms)
                 self.tick_count += 1;
                 if self.tick_count % 200 == 0 {
                     if let Ok(cwd) = std::env::current_dir() {
                         self.git_info = git_info::GitInfo::from_dir(&cwd);
                     }
+                    self.listening_ports = port_monitor::detect_listening_ports();
                 }
 
                 // Process events on all panes in all workspaces and clear cache if needed.
@@ -317,7 +321,22 @@ impl App {
 
             let label = text(label_text).size(14);
 
-            let btn = button(label)
+            let mut btn_content = vec![label.into()];
+
+            // Add listening ports for active workspace below the label
+            if is_active && !self.listening_ports.is_empty() {
+                let port_str = self.listening_ports
+                    .iter()
+                    .take(5)
+                    .map(|p| format!(":{p}"))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                btn_content.push(text(port_str).size(10).color(Color::from_rgb(0.5, 0.7, 1.0)).into());
+            }
+
+            let label_col = column(btn_content).spacing(2);
+
+            let btn = button(label_col)
                 .on_press(Message::SelectWorkspace(i))
                 .width(Length::Fill)
                 .padding(8);
